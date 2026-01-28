@@ -1,0 +1,16 @@
+{
+  "name": "notion-task-bot",
+  "version": "1.0.0",
+  "description": "Discord bot that creates tasks in Notion",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@notionhq/client": "^2.2.15",
+    "discord.js": "^14.14.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
