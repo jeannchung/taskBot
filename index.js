@@ -64,11 +64,29 @@ function parseDate(dateStr) {
   return null; // Invalid format
 }
 
-// Parse command: !task [-high|-medium|-low] [-due DATE] Task description
+// Normalize status input to Notion status values
+function normalizeStatus(input) {
+  const statusMap = {
+    'not started': 'Not started',
+    'notstarted': 'Not started',
+    'todo': 'Not started',
+    'in progress': 'In progress',
+    'inprogress': 'In progress',
+    'doing': 'In progress',
+    'done': 'Done',
+    'complete': 'Done',
+    'completed': 'Done',
+  };
+  return statusMap[input.toLowerCase()] || input;
+}
+
+// Parse command: !task [-high|-medium|-low] [-due DATE] [-status STATUS] [-id ID] Task description
 function parseTaskCommand(content) {
   let remaining = content.slice(5).trim(); // Remove "!task"
   let priority = null;
   let dueDate = null;
+  let status = null;
+  let taskId = null;
 
   // Extract flags in any order
   let foundFlag = true;
@@ -93,19 +111,37 @@ function parseTaskCommand(content) {
       foundFlag = true;
       continue;
     }
+
+    // Check for status flag (supports multi-word like "in progress")
+    const statusMatch = remaining.match(/^-status\s+(not started|in progress|done|todo|doing|complete|completed|notstarted|inprogress)\s*/i);
+    if (statusMatch) {
+      status = normalizeStatus(statusMatch[1]);
+      remaining = remaining.slice(statusMatch[0].length).trim();
+      foundFlag = true;
+      continue;
+    }
+
+    // Check for ID flag (for updating existing tasks)
+    const idMatch = remaining.match(/^-id\s+(\d+)\s*/i);
+    if (idMatch) {
+      taskId = parseInt(idMatch[1], 10);
+      remaining = remaining.slice(idMatch[0].length).trim();
+      foundFlag = true;
+      continue;
+    }
   }
 
-  return { taskName: remaining, priority, dueDate };
+  return { taskName: remaining, priority, dueDate, status, taskId };
 }
 
 // Create task in Notion
-async function createNotionTask(taskName, priority, dueDate) {
+async function createNotionTask(taskName, priority, dueDate, status) {
   const properties = {
     'Task name': {
       title: [{ text: { content: taskName } }],
     },
     'Status': {
-      status: { name: 'Not started' },
+      status: { name: status || 'Not started' },
     },
   };
 
@@ -129,6 +165,53 @@ async function createNotionTask(taskName, priority, dueDate) {
   return response;
 }
 
+// Find task by ID in Notion database
+async function findTaskById(taskId) {
+  const response = await notion.databases.query({
+    database_id: NOTION_DATABASE_ID,
+    filter: {
+      property: 'ID',
+      unique_id: {
+        equals: taskId,
+      },
+    },
+  });
+
+  return response.results[0] || null;
+}
+
+// Update task status in Notion
+async function updateTaskStatus(pageId, newStatus) {
+  const response = await notion.pages.update({
+    page_id: pageId,
+    properties: {
+      'Status': {
+        status: { name: newStatus },
+      },
+    },
+  });
+
+  return response;
+}
+
+// Extract task ID from Notion page response
+function getTaskId(page) {
+  const idProp = page.properties['ID'];
+  if (idProp && idProp.unique_id) {
+    return idProp.unique_id.number;
+  }
+  return null;
+}
+
+// Extract task name from Notion page response
+function getTaskName(page) {
+  const titleProp = page.properties['Task name'];
+  if (titleProp && titleProp.title && titleProp.title[0]) {
+    return titleProp.title[0].plain_text;
+  }
+  return 'Unknown';
+}
+
 // Discord event handlers
 discord.once('ready', () => {
   console.log(`✅ Bot is online as ${discord.user.tag}`);
@@ -139,21 +222,41 @@ discord.on('messageCreate', async (message) => {
   if (message.author.bot) return;
   if (!message.content.toLowerCase().startsWith('!task ')) return;
 
-  const { taskName, priority, dueDate } = parseTaskCommand(message.content);
-
-  if (!taskName) {
-    await message.reply('❌ Please provide a task name. Usage: `!task [-high|-medium|-low] [-due DATE] Your task here`\nDate formats: `2026-02-15`, `Feb 15`, `2/15`');
-    return;
-  }
+  const { taskName, priority, dueDate, status, taskId } = parseTaskCommand(message.content);
 
   try {
-    const page = await createNotionTask(taskName, priority, dueDate);
+    // Update existing task by ID
+    if (taskId !== null) {
+      const existingTask = await findTaskById(taskId);
+      if (!existingTask) {
+        await message.reply(`❌ Task with ID **${taskId}** not found.`);
+        return;
+      }
+
+      // Default to "In progress" if no status specified for updates
+      const newStatus = status || 'In progress';
+      await updateTaskStatus(existingTask.id, newStatus);
+      const existingTaskName = getTaskName(existingTask);
+      await message.reply(`✅ Task #${taskId} updated to **${newStatus}**: ${existingTaskName}\n<${existingTask.url}>`);
+      return;
+    }
+
+    // Create new task
+    if (!taskName) {
+      await message.reply('❌ Please provide a task name.\n**Create:** `!task [-high|-medium|-low] [-due DATE] [-status STATUS] Your task`\n**Update:** `!task -id ID [-status STATUS]`\nDate formats: `2026-02-15`, `Feb 15`, `2/15`\nStatuses: `not started`, `in progress`, `done`');
+      return;
+    }
+
+    const page = await createNotionTask(taskName, priority, dueDate, status);
+    const newTaskId = getTaskId(page);
+    const idText = newTaskId ? `#${newTaskId} ` : '';
     const priorityText = priority ? ` [${priority}]` : '';
     const dueText = dueDate ? ` (due: ${dueDate})` : '';
-    await message.reply(`✅ Task created${priorityText}${dueText}: **${taskName}**\n<${page.url}>`);
+    const statusText = status ? ` → ${status}` : '';
+    await message.reply(`✅ Task ${idText}created${priorityText}${dueText}${statusText}: **${taskName}**\n<${page.url}>`);
   } catch (error) {
-    console.error('Error creating task:', error);
-    await message.reply('❌ Failed to create task. Check the bot logs.');
+    console.error('Error with task operation:', error);
+    await message.reply('❌ Failed to process task. Check the bot logs.');
   }
 });
 
