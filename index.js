@@ -1,11 +1,13 @@
 const { Client, GatewayIntentBits } = require('discord.js');
 const { Client: NotionClient } = require('@notionhq/client');
+const Anthropic = require('@anthropic-ai/sdk');
 
 // Configuration
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const NOTION_TOKEN = process.env.NOTION_TOKEN;
 const NOTION_DATABASE_ID = process.env.NOTION_DATABASE_ID || '2f6c2150cdb18087b6e1f93b856a1f56';
 const ALLOWED_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 // Initialize clients
 const discord = new Client({
@@ -17,6 +19,7 @@ const discord = new Client({
 });
 
 const notion = new NotionClient({ auth: NOTION_TOKEN });
+const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
 
 // Parse date string into ISO format (YYYY-MM-DD)
 function parseDate(dateStr) {
@@ -213,6 +216,64 @@ function getTaskName(page) {
   return 'Unknown';
 }
 
+// Parse command using Claude for natural language understanding
+async function parseWithClaude(commandText) {
+  if (!anthropic) return null;
+
+  const prompt = `Parse this task bot command and extract the structured data. The command is: "${commandText}"
+
+Valid statuses are: "Not started", "In progress", "Done"
+Valid priorities are: "High", "Medium", "Low"
+Dates should be in YYYY-MM-DD format.
+
+Return ONLY valid JSON (no markdown, no explanation) with these fields:
+{
+  "taskId": number or null (if updating existing task),
+  "taskName": string or null (for new tasks),
+  "status": "Not started" | "In progress" | "Done" | null,
+  "priority": "High" | "Medium" | "Low" | null,
+  "dueDate": "YYYY-MM-DD" | null
+}
+
+Examples:
+- "!task -id 7 update the status to complete" → {"taskId": 7, "taskName": null, "status": "Done", "priority": null, "dueDate": null}
+- "!task mark task 5 as in progress" → {"taskId": 5, "taskName": null, "status": "In progress", "priority": null, "dueDate": null}
+- "!task high priority finish report by feb 20" → {"taskId": null, "taskName": "finish report", "status": null, "priority": "High", "dueDate": "${new Date().getFullYear()}-02-20"}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-5-20250514',
+      max_tokens: 256,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const text = response.content[0].text.trim();
+    return JSON.parse(text);
+  } catch (error) {
+    console.error('Claude parsing error:', error);
+    return null;
+  }
+}
+
+// Check if command needs Claude interpretation
+function needsClaudeInterpretation(parsed) {
+  const { taskName, taskId, status } = parsed;
+
+  // Has task ID but remaining text suggests natural language intent
+  if (taskId !== null && taskName) {
+    const nlKeywords = /\b(update|change|set|mark|move|switch|make)\b/i;
+    if (nlKeywords.test(taskName)) return true;
+  }
+
+  // Task name contains status-like words that weren't parsed
+  if (taskName) {
+    const statusKeywords = /\b(complete|finished|progress|started|doing|todo)\b/i;
+    if (statusKeywords.test(taskName) && !status) return true;
+  }
+
+  return false;
+}
+
 // Discord event handlers
 discord.once('ready', () => {
   console.log(`✅ Bot is online as ${discord.user.tag}`);
@@ -224,7 +285,24 @@ discord.on('messageCreate', async (message) => {
   if (ALLOWED_CHANNEL_ID && message.channel.id !== ALLOWED_CHANNEL_ID) return;
   if (!message.content.toLowerCase().startsWith('!task ')) return;
 
-  const { taskName, priority, dueDate, status, taskId } = parseTaskCommand(message.content);
+  // First try regex-based parsing
+  let parsed = parseTaskCommand(message.content);
+
+  // Use Claude if the command seems like natural language
+  if (needsClaudeInterpretation(parsed) && anthropic) {
+    const claudeParsed = await parseWithClaude(message.content);
+    if (claudeParsed) {
+      parsed = {
+        taskName: claudeParsed.taskName,
+        priority: claudeParsed.priority,
+        dueDate: claudeParsed.dueDate,
+        status: claudeParsed.status,
+        taskId: claudeParsed.taskId,
+      };
+    }
+  }
+
+  const { taskName, priority, dueDate, status, taskId } = parsed;
 
   try {
     // Update existing task by ID
