@@ -5,6 +5,7 @@ const { Client: NotionClient } = require('@notionhq/client');
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const NOTION_TOKEN = process.env.NOTION_TOKEN;
 const NOTION_DATABASE_ID = process.env.NOTION_DATABASE_ID || '2f6c2150cdb18087b6e1f93b856a1f56';
+const ALLOWED_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 
 // Initialize clients
 const discord = new Client({
@@ -220,6 +221,7 @@ discord.once('ready', () => {
 discord.on('messageCreate', async (message) => {
   // Ignore bots and messages without prefix
   if (message.author.bot) return;
+  if (ALLOWED_CHANNEL_ID && message.channel.id !== ALLOWED_CHANNEL_ID) return;
   if (!message.content.toLowerCase().startsWith('!task ')) return;
 
   const { taskName, priority, dueDate, status, taskId } = parseTaskCommand(message.content);
