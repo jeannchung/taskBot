@@ -233,8 +233,8 @@ discord.on('messageCreate', async (message) => {
         return;
       }
 
-      // Default to "In progress" if no status specified for updates
-      const newStatus = status || 'In progress';
+      // Default to "Not started" if no status specified for updates
+      const newStatus = status || 'Not started';
       await updateTaskStatus(existingTask.id, newStatus);
       const existingTaskName = getTaskName(existingTask);
       await message.reply(`✅ Task #${taskId} updated to **${newStatus}**: ${existingTaskName}\n<${existingTask.url}>`);
