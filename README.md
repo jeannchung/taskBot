@@ -22,7 +22,7 @@ A simple Discord bot that creates tasks in your Notion database using the `!task
    ```
    DISCORD_TOKEN=your_discord_token
    NOTION_TOKEN=your_notion_token
-   NOTION_DATABASE_ID=2f6c2150cdb18087b6e1f93b856a1f56
+   NOTION_DATABASE_ID=your_notion_database_id
    ```
 
 3. Run the bot:
