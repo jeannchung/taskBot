@@ -265,8 +265,14 @@ Examples:
       messages: [{ role: 'user', content: prompt }],
     });
 
-    const text = response.content[0].text.trim();
+    let text = response.content[0].text.trim();
     console.log('Claude raw response:', text);
+
+    // Strip markdown code blocks if present
+    if (text.startsWith('```')) {
+      text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    }
+
     const parsed = JSON.parse(text);
     console.log('Claude parsed result:', parsed);
     return parsed;
