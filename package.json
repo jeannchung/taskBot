@@ -9,6 +9,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@notionhq/client": "^2.2.15",
+    "ascii-table": "^0.0.9",
     "discord.js": "^14.14.1"
   },
   "engines": {

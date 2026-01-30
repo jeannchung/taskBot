@@ -1,6 +1,7 @@
 const { Client, GatewayIntentBits } = require('discord.js');
 const { Client: NotionClient } = require('@notionhq/client');
 const Anthropic = require('@anthropic-ai/sdk');
+const AsciiTable = require('ascii-table');
 
 // Configuration
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
@@ -355,12 +356,19 @@ discord.on('messageCreate', async (message) => {
         return;
       }
 
-      const taskLines = tasks.map((task) => {
-        const dueText = task.dueDate ? ` | Due: ${task.dueDate}` : '';
-        return `**#${task.id}** ${task.name} [${task.status}]${dueText}`;
+      const table = new AsciiTable(`Open Tasks (${tasks.length})`);
+      table.setHeading('ID', 'Task', 'Status', 'Due');
+
+      tasks.forEach((task) => {
+        table.addRow(
+          task.id || '-',
+          task.name.length > 30 ? task.name.slice(0, 27) + '...' : task.name,
+          task.status,
+          task.dueDate || '-'
+        );
       });
 
-      await message.reply(`📋 **Open Tasks (${tasks.length}):**\n${taskLines.join('\n')}`);
+      await message.reply(`\`\`\`\n${table.toString()}\n\`\`\``);
     } catch (error) {
       console.error('Error fetching tasks:', error);
       await message.reply('❌ Failed to fetch tasks. Check the bot logs.');
