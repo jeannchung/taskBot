@@ -214,6 +214,34 @@ async function updateTask(pageId, updates) {
   return response;
 }
 
+// Get all incomplete tasks from Notion
+async function getIncompleteTasks() {
+  const response = await notion.databases.query({
+    database_id: NOTION_DATABASE_ID,
+    filter: {
+      property: 'Status',
+      status: {
+        does_not_equal: 'Done',
+      },
+    },
+    sorts: [
+      {
+        property: 'Due date',
+        direction: 'ascending',
+      },
+    ],
+  });
+
+  return response.results.map((page) => {
+    const id = page.properties['ID']?.unique_id?.number || null;
+    const name = page.properties['Task name']?.title?.[0]?.plain_text || 'Unknown';
+    const status = page.properties['Status']?.status?.name || 'Unknown';
+    const dueDate = page.properties['Due date']?.date?.start || null;
+
+    return { id, name, status, dueDate };
+  });
+}
+
 // Extract task ID from Notion page response
 function getTaskId(page) {
   const idProp = page.properties['ID'];
@@ -316,6 +344,30 @@ discord.on('messageCreate', async (message) => {
   // Ignore bots and messages without prefix
   if (message.author.bot) return;
   if (ALLOWED_CHANNEL_ID && message.channel.id !== ALLOWED_CHANNEL_ID) return;
+
+  // Handle !tasks command - list incomplete tasks
+  if (message.content.toLowerCase() === '!tasks') {
+    try {
+      const tasks = await getIncompleteTasks();
+
+      if (tasks.length === 0) {
+        await message.reply('🎉 No open tasks! All caught up.');
+        return;
+      }
+
+      const taskLines = tasks.map((task) => {
+        const dueText = task.dueDate ? ` | Due: ${task.dueDate}` : '';
+        return `**#${task.id}** ${task.name} [${task.status}]${dueText}`;
+      });
+
+      await message.reply(`📋 **Open Tasks (${tasks.length}):**\n${taskLines.join('\n')}`);
+    } catch (error) {
+      console.error('Error fetching tasks:', error);
+      await message.reply('❌ Failed to fetch tasks. Check the bot logs.');
+    }
+    return;
+  }
+
   if (!message.content.toLowerCase().startsWith('!task ')) return;
 
   // First try regex-based parsing
