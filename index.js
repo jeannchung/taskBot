@@ -266,7 +266,10 @@ Examples:
     });
 
     const text = response.content[0].text.trim();
-    return JSON.parse(text);
+    console.log('Claude raw response:', text);
+    const parsed = JSON.parse(text);
+    console.log('Claude parsed result:', parsed);
+    return parsed;
   } catch (error) {
     console.error('Claude parsing error:', error);
     return null;
