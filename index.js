@@ -5,7 +5,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 // Configuration
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 const NOTION_TOKEN = process.env.NOTION_TOKEN;
-const NOTION_DATABASE_ID = process.env.NOTION_DATABASE_ID || '2f6c2150cdb18087b6e1f93b856a1f56';
+const NOTION_DATABASE_ID = process.env.NOTION_DATABASE_ID;
 const ALLOWED_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
