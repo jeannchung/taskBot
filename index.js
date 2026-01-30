@@ -184,15 +184,31 @@ async function findTaskById(taskId) {
   return response.results[0] || null;
 }
 
-// Update task status in Notion
-async function updateTaskStatus(pageId, newStatus) {
+// Update task in Notion (supports status, due date, and priority)
+async function updateTask(pageId, updates) {
+  const properties = {};
+
+  if (updates.status) {
+    properties['Status'] = {
+      status: { name: updates.status },
+    };
+  }
+
+  if (updates.dueDate) {
+    properties['Due date'] = {
+      date: { start: updates.dueDate },
+    };
+  }
+
+  if (updates.priority) {
+    properties['Priority'] = {
+      select: { name: updates.priority },
+    };
+  }
+
   const response = await notion.pages.update({
     page_id: pageId,
-    properties: {
-      'Status': {
-        status: { name: newStatus },
-      },
-    },
+    properties,
   });
 
   return response;
@@ -238,6 +254,8 @@ Return ONLY valid JSON (no markdown, no explanation) with these fields:
 Examples:
 - "!task -id 7 update the status to complete" → {"taskId": 7, "taskName": null, "status": "Done", "priority": null, "dueDate": null}
 - "!task mark task 5 as in progress" → {"taskId": 5, "taskName": null, "status": "In progress", "priority": null, "dueDate": null}
+- "!task -id 7 update due date to jan 30" → {"taskId": 7, "taskName": null, "status": null, "priority": null, "dueDate": "${new Date().getFullYear()}-01-30"}
+- "!task -id 3 change priority to high" → {"taskId": 3, "taskName": null, "status": null, "priority": "High", "dueDate": null}
 - "!task high priority finish report by feb 20" → {"taskId": null, "taskName": "finish report", "status": null, "priority": "High", "dueDate": "${new Date().getFullYear()}-02-20"}`;
 
   try {
@@ -257,12 +275,18 @@ Examples:
 
 // Check if command needs Claude interpretation
 function needsClaudeInterpretation(parsed) {
-  const { taskName, taskId, status } = parsed;
+  const { taskName, taskId, status, dueDate, priority } = parsed;
 
   // Has task ID but remaining text suggests natural language intent
   if (taskId !== null && taskName) {
     const nlKeywords = /\b(update|change|set|mark|move|switch|make)\b/i;
     if (nlKeywords.test(taskName)) return true;
+
+    // Due date or priority keywords without explicit flags
+    const dueDateKeywords = /\b(due|deadline|date)\b/i;
+    const priorityKeywords = /\b(priority|urgent|important)\b/i;
+    if (dueDateKeywords.test(taskName) && !dueDate) return true;
+    if (priorityKeywords.test(taskName) && !priority) return true;
   }
 
   // Task name contains status-like words that weren't parsed
@@ -313,11 +337,28 @@ discord.on('messageCreate', async (message) => {
         return;
       }
 
-      // Default to "Not started" if no status specified for updates
-      const newStatus = status || 'Not started';
-      await updateTaskStatus(existingTask.id, newStatus);
+      // Build updates object with provided fields
+      const updates = {};
+      if (status) updates.status = status;
+      if (dueDate) updates.dueDate = dueDate;
+      if (priority) updates.priority = priority;
+
+      // Require at least one field to update
+      if (Object.keys(updates).length === 0) {
+        await message.reply(`❌ No updates specified. Use \`-status\`, \`-due\`, \`-priority\`, or natural language like "update due date to Jan 30".`);
+        return;
+      }
+
+      await updateTask(existingTask.id, updates);
       const existingTaskName = getTaskName(existingTask);
-      await message.reply(`✅ Task #${taskId} updated to **${newStatus}**: ${existingTaskName}\n<${existingTask.url}>`);
+
+      // Build update summary
+      const updateParts = [];
+      if (updates.status) updateParts.push(`status → **${updates.status}**`);
+      if (updates.dueDate) updateParts.push(`due date → **${updates.dueDate}**`);
+      if (updates.priority) updateParts.push(`priority → **${updates.priority}**`);
+
+      await message.reply(`✅ Task #${taskId} updated (${updateParts.join(', ')}): ${existingTaskName}\n<${existingTask.url}>`);
       return;
     }
 
